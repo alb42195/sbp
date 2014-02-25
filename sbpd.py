@@ -14,11 +14,16 @@ tx_t.start()
 
 print("aaaa")
 
-for i in range(10):
-  txq.put(['192.168.122.12','192.168.122.13'])
-  time.sleep(1)
+send_msg = sbp.send_msg(txq,3,'192.168.122.12','192.168.122.13')
+send_msg.start()
+
+#for i in range(10):
+#  txq.put(['192.168.122.12','192.168.122.13'])
+#  time.sleep(1)
 
 print("dddd")
+
+time.sleep(100)
 
 txq.join()
 

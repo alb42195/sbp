@@ -105,3 +105,21 @@ class hb_tx(heartbeat,threading.Thread):
     icmp_header = struct.pack("bbHHh", 8, 0, cksum, self.ClusterID, 1)
     pkt = ip_header + icmp_header + data
     self.sock.sendto(pkt, (dst_ip, 1))
+
+
+class send_msg(threading.Thread):
+  def __init__(self,txq,time,src_ip,dst_ip):
+    threading.Thread.__init__(self)
+    self.daemon = True
+    self.time = time
+    self.txq = txq
+    self.src_ip = src_ip
+    self.dst_ip = dst_ip
+
+  def run(self):
+    while True:
+      time.sleep(self.time)
+      self.txq.put([self.src_ip, self.dst_ip])
+      print("tst")
+
+
