@@ -6,24 +6,14 @@ rxq = queue.Queue()
 txq = queue.Queue()
 
 
-rx_t = sbp.hb_rx("aaa",'',1,1000,10)
+l = {}
+l[1] = sbp.icmp_link(txq,2,'192.168.122.12','192.168.122.13',12,1)
+l[1].start()
+tx_t = sbp.hb_tx(txq, 1000,11)
+tx_t.start()
+rx_t = sbp.hb_rx(l,'',1,1000,11)
 rx_t.start()
 
-tx_t = sbp.hb_tx(txq, 1000)
-tx_t.start()
 
-print("aaaa")
-
-send_msg = sbp.send_msg(txq,3,'192.168.122.12','192.168.122.13')
-send_msg.start()
-
-#for i in range(10):
-#  txq.put(['192.168.122.12','192.168.122.13'])
-#  time.sleep(1)
-
-print("dddd")
 
 time.sleep(100)
-
-txq.join()
-
