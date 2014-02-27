@@ -55,14 +55,16 @@ class heartbeat():
 
 
 class hb_rx(heartbeat,threading.Thread):
-  def __init__(self,rxq,ip,port,ClusterID,NodeID):
+  #def __init__(self,rxq,ip,port,ClusterID,NodeID):
+  def __init__(self,system):
     threading.Thread.__init__(self)
     self.daemon = True
-    self.rxq = rxq
-    self.ip = ip
-    self.port = port
-    self.ClusterID = ClusterID
-    self.NodeID = NodeID
+    #self.rxq = rxq
+    #self.ip = ip
+    #self.port = port
+    #self.ClusterID = ClusterID
+    #self.NodeID = NodeID
+    self.system = system
     self.sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
     #self.sock.setsockopt(socket.SOL_IP, socket.IP_HDRINCL, 1)
     self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
@@ -75,22 +77,22 @@ class hb_rx(heartbeat,threading.Thread):
       raw_pkt = self.sock.recvfrom(4096)
       data_pkt = self.unpack_hb(raw_pkt[0][28:]) 
       ip_header = self.unpack_ip_addr(raw_pkt[0][:20])
-      if data_pkt['ClusterID'] != self.ClusterID or data_pkt['dst_nID'] != self.NodeID: 
-        print("SSS") 
-        print(data_pkt)
+      if data_pkt['dst_nID'] != self.system.cluster[data_pkt['ClusterID']].NodeID:
+        print("SSS")
         continue
-      self.rxq[data_pkt['lID']].rxq.put(data_pkt) 
+      try:
+        self.system.cluster[data_pkt['ClusterID']].Nodes[data_pkt['src_nID']].icmp_links[data_pkt['lID']].rxq.put(data_pkt)
+      except:
+        print("EEEERRRROROO")
+      #self.rxq[data_pkt['lID']].rxq.put(data_pkt) 
       #print(data_pkt)
       
 
 class hb_tx(heartbeat,threading.Thread):
-  #def __init__(self,txq,ClusterID,NodeID):
   def __init__(self,txq):
     threading.Thread.__init__(self)
     self.daemon = True
     self.sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-    #self.ClusterID = ClusterID
-    #self.NodeID = NodeID
     self.txq = txq
 
   def run(self):
@@ -162,7 +164,7 @@ class cluster():
     self.txq = txq
     self.ID = self.config["ID"]
     self.hostname = socket.gethostname()
-    self.NodeID = "AAA"
+    self.NodeID = ""
     self.Nodes = {}
 
   def create_nodes(self):
@@ -201,3 +203,27 @@ class cnodes():
     for i in self.icmp_links:
       print("AAAA")
       self.icmp_links[i].start()
+
+
+class system():
+  def __init__(self):
+    with open('sbp.conf') as f:
+      self.config = json.load(f)
+    self.txq = queue.Queue()
+    self.rxq = queue.Queue()
+    self.tx = hb_tx(self.txq)  
+    self.rx = hb_rx(self) 
+    self.start()
+    self.cluster = {}
+
+  def start(self):
+    self.tx.start()
+    self.rx.start()
+
+  def create_cluster(self):
+    for i in self.config['Cluster']:
+      self.cluster[i['ID']] = cluster(i,self.rxq,self.txq)
+      self.cluster[i['ID']].create_nodes()
+      self.cluster[i['ID']].create_all_icmp_links()
+
+
