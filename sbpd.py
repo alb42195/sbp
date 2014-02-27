@@ -3,9 +3,9 @@
 import sbp, time
 
 x = sbp.system()
-x.create_cluster()
-x.cluster[1000].Nodes[2].start_all_links()
-
+x.create()
+#x.cluster[1000].Nodes[2].start_all_links()
+x.start()
 
 
 

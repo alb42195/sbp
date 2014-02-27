@@ -247,17 +247,20 @@ class system():
     self.rxq = queue.Queue()
     self.tx = hb_tx(self.txq)  
     self.rx = hb_rx(self) 
-    self.start()
+    self.start_queues()
     self.cluster = {}
 
-  def start(self):
+  def start_queues(self):
     self.tx.start()
     self.rx.start()
 
-  def create_cluster(self):
+  def create(self):
     for i in self.config['Cluster']:
       self.cluster[i['ID']] = cluster(i,self.rxq,self.txq)
       self.cluster[i['ID']].create_nodes()
       self.cluster[i['ID']].create_all_icmp_links()
 
-
+  def start(self):
+    for i in self.cluster:
+      for x in self.cluster[i].Nodes:
+        self.cluster[i].Nodes[x].start_all_links()
