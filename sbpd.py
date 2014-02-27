@@ -1,6 +1,41 @@
 #!/usr/bin/python3
 
-import struct, time, socket, queue, threading, json, sys
+import struct, time, socket, queue, threading, json, sys, os, logging
+
+CRITICAL=50
+ERROR=40
+WARNING=30
+NOTICE=25
+INFO=20
+DEBUG=10
+
+if os.path.isfile('/etc/sbpd.conf'):
+  conf_file_location = '/etc/sbpd.conf'
+elif os.path.isfile('/usr/local/etc/sbpd.conf'):
+  conf_file_location = '/usr/local/etc/sbpd.conf'
+elif os.path.isfile('sbpd.conf'):
+  conf_file_location = 'sbpd.conf'
+else:
+  print("ERROR: No config file found")
+  sys.exit(1)
+with open('sbpd.conf') as f:
+  config = json.load(f)
+
+if "Logging" in config:
+  print(config['Logging'])
+else:
+  log_path = '/var/log/'
+  log_filename = 'sbpd.log'
+  log_serverity = INFO
+
+FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
+logging.basicConfig(filename=log_path + "/" + log_filename ,format=FORMAT)
+logging.addLevelName(25, "NOTICE")
+logger = logging.getLogger("system")
+logger.setLevel( log_serverity )
+
+
+logger.log (INFO, "sbpd started")
 
 class heartbeat():
   def __init__(self):
@@ -71,6 +106,8 @@ class hb_rx(heartbeat,threading.Thread):
     self.sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
     #self.sock.setsockopt(socket.SOL_IP, socket.IP_HDRINCL, 1)
     self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+    self.logger = logging.getLogger("RX")
+    self.logger.setLevel( log_serverity )
 
   def run(self):
     self.rx()
@@ -87,11 +124,12 @@ class hb_rx(heartbeat,threading.Thread):
       data_pkt = data[1]
       ip_header = self.unpack_ip_addr(raw_pkt[0][:20])
       if data_pkt['dst_nID'] != self.system.cluster[data_pkt['ClusterID']].NodeID:
-        print("SSS")
+        logger.log(INFO, "packet received with wrong dest node ID (" + data_pkt['dst_nID'] + ")")
         continue
       try:
         self.system.cluster[data_pkt['ClusterID']].Nodes[data_pkt['src_nID']].icmp_links[data_pkt['lID']].rxq.put(data_pkt)
       except:
+        self.logger.log(WARNING, "packet can't be dispatched to link")
         print("EEEERRRROROO")
       #self.rxq[data_pkt['lID']].rxq.put(data_pkt) 
       #print(data_pkt)
@@ -103,6 +141,8 @@ class hb_tx(heartbeat,threading.Thread):
     self.daemon = True
     self.sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
     self.txq = txq
+    self.logger = logging.getLogger("TX")
+    self.logger.setLevel( log_serverity )
 
   def run(self):
     while True:
@@ -150,11 +190,11 @@ class get_msg(threading.Thread):
         self.link.rxq.task_done()
         if not self.link.status:
           self.link.status = True
-          print("link " + str(self.link.lID) + " ok")
+          self.link.logger.log(NOTICE, "in-service") 
           self.cnode.check_split()
       except queue.Empty:
         if self.link.status:
-          print("link " + str(self.link.lID) + " failed")
+          self.link.logger.log(WARNING, "out-of-service") 
           self.link.status = False
           self.link.cnode.check_split()
 
@@ -170,10 +210,14 @@ class ICMP_link():
     self.seqnum = 0
     self.acknum = 0
     self.lID = lID
+    self.cluster = cluster
+
+    self.logger = logging.getLogger("ClusterID:" + str(cluster.ID) + " NodeID:" + str(self.cnode.ID) + " LinkID:" + str(self.lID) )
+    self.logger.setLevel( log_serverity )
+
     self.tx = send_msg(self)
     self.rxq = queue.Queue() 
     self.rx = get_msg(self, self.cnode)
-    self.cluster = cluster
 
   def start(self):
     self.tx.start()
@@ -188,6 +232,8 @@ class cluster():
     self.hostname = socket.gethostname()
     self.NodeID = ""
     self.Nodes = {}
+    self.logger = logging.getLogger("ClusterID:" + str(self.ID))
+    self.logger.setLevel( log_serverity )
 
   def create_nodes(self):
     for i in self.config["Members"]:
@@ -207,7 +253,10 @@ class cnodes():
     self.hostname = hostname
     self.icmp_links = {}
     self.status = True
-  
+
+    self.logger = logging.getLogger("ClusterID:" + str(cluster.ID) + " NodeID:" + str(self.ID))
+    self.logger.setLevel( log_serverity ) 
+
   def create_links(self):
     for i in self.cluster.config["ICMP_links"]:
       own_link = False
@@ -234,17 +283,16 @@ class cnodes():
         status = True
     if self.status != status:
       if status:
-        print("node " + str(self.ID) + " ok")
+        self.logger.log (NOTICE, "in-service")
       else:
-        print("split " + str(self.ID) + "brain")
+        self.logger.log (CRITICAL, "out-of-service")
 
     self.status = status
     
 
 class system():
-  def __init__(self):
-    with open('sbp.conf') as f:
-      self.config = json.load(f)
+  def __init__(self,config):
+    self.config = config
     self.txq = queue.Queue()
     self.rxq = queue.Queue()
     self.tx = hb_tx(self.txq)  
@@ -275,13 +323,17 @@ class system():
 
   def monitor(self):
     while True:
-      if not self.rx.isAlive:
-        self.rx.start()
-      if not self.tx.isAlive:
-        self.tx.start()
-      time.sleep(1)
+      try:
+        if not self.rx.isAlive:
+          self.rx.start()
+        if not self.tx.isAlive:
+          self.tx.start()
+        time.sleep(1)
+      except KeyboardInterrupt:
+        logger.log(INFO, "sbpd stop on keyboard interrupt") 
+        sys.exit(0)
 
-x = system()
+x = system(config)
 x.create()
 x.start()
 
