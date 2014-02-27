@@ -11,16 +11,19 @@ class heartbeat():
     return data_pack
 
   def unpack_hb(self, data_pack):
-    upacked = struct.unpack('HHHHIId', data_pack)
-    pkt = {}
-    pkt['ClusterID'] = upacked[0]
-    pkt['src_nID'] = upacked[1]
-    pkt['dst_nID'] = upacked[2]
-    pkt['lID'] = upacked[3]
-    pkt['seqnum'] = upacked[4]
-    pkt['acknum'] = upacked[5]
-    pkt['time'] = upacked[6]
-    return pkt
+    try:
+      upacked = struct.unpack('HHHHIId', data_pack)
+      pkt = {}
+      pkt['ClusterID'] = upacked[0]
+      pkt['src_nID'] = upacked[1]
+      pkt['dst_nID'] = upacked[2]
+      pkt['lID'] = upacked[3]
+      pkt['seqnum'] = upacked[4]
+      pkt['acknum'] = upacked[5]
+      pkt['time'] = upacked[6]
+      return [True, pkt]
+    except:
+      return [False]
 
   def pack_ip(self, srcip, dstip, proto=1, ident=54321):
     saddr = socket.inet_aton(srcip)
@@ -75,7 +78,11 @@ class hb_rx(heartbeat,threading.Thread):
   def rx(self):
     while True:
       raw_pkt = self.sock.recvfrom(4096)
-      data_pkt = self.unpack_hb(raw_pkt[0][28:]) 
+      
+      data = self.unpack_hb(raw_pkt[0][28:]) 
+      if not data[0]:
+        continue
+      data_pkt = data[1]
       ip_header = self.unpack_ip_addr(raw_pkt[0][:20])
       if data_pkt['dst_nID'] != self.system.cluster[data_pkt['ClusterID']].NodeID:
         print("SSS")
@@ -127,21 +134,34 @@ class send_msg(threading.Thread):
       
 
 class get_msg(threading.Thread):
-  def __init__(self,link):
+  def __init__(self,link,cnode):
     threading.Thread.__init__(self)
     self.daemon = True
     self.link = link
+    self.cnode = cnode
 
   def run(self):
     while True:
-      pkt = self.link.rxq.get() 
-      self.link.acknum = pkt['seqnum']
-      print(pkt)
-      self.link.rxq.task_done()
+      try:
+        pkt = self.link.rxq.get(timeout=self.link.time*self.link.maxloss) 
+        self.link.acknum = pkt['seqnum']
+        self.link.rxq.task_done()
+        if not self.link.status:
+          self.link.status = True
+          print("link " + str(self.link.lID) + " ok")
+          self.cnode.check_split()
+      except queue.Empty:
+        if self.link.status:
+          print("link " + str(self.link.lID) + " failed")
+          self.link.status = False
+          self.link.cnode.check_split()
 
 class ICMP_link():
-  def __init__(self,cluster,time,src_ip,dst_ip,dst_nID,lID):
+  def __init__(self,cnode,cluster,time,src_ip,dst_ip,dst_nID,lID,maxloss):
+    self.status = True
     self.time = time
+    self.cnode = cnode
+    self.maxloss = maxloss
     self.src_ip = src_ip
     self.dst_ip = dst_ip
     self.dst_nID = dst_nID
@@ -150,7 +170,7 @@ class ICMP_link():
     self.lID = lID
     self.tx = send_msg(self)
     self.rxq = queue.Queue() 
-    self.rx = get_msg(self)
+    self.rx = get_msg(self, self.cnode)
     self.cluster = cluster
 
   def start(self):
@@ -184,7 +204,8 @@ class cnodes():
     self.ID = dst_nID
     self.hostname = hostname
     self.icmp_links = {}
-
+    self.status = True
+  
   def create_links(self):
     for i in self.cluster.config["ICMP_links"]:
       own_link = False
@@ -197,13 +218,26 @@ class cnodes():
           dst_nID = x['NodeID']
           ip = x['IP']
       if own_link:
-        self.icmp_links[i['ID']] = ICMP_link(self.cluster,i['interval'],ip,i['ICMPIP'],dst_nID,i['ID'])
+        self.icmp_links[i['ID']] = ICMP_link(self,self.cluster,i['interval'],ip,i['ICMPIP'],dst_nID,i['ID'],i['maxloss'],)
 
   def start_all_links(self):
     for i in self.icmp_links:
-      print("AAAA")
       self.icmp_links[i].start()
 
+
+  def check_split(self):
+    status = False
+    for i in self.icmp_links:
+      if self.icmp_links[i].status:
+        status = True
+    if self.status != status:
+      if status:
+        print("node " + str(self.ID) + " ok")
+      else:
+        print("split " + str(self.ID) + "brain")
+
+    self.status = status
+    
 
 class system():
   def __init__(self):
