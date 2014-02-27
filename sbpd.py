@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import struct, time, socket, queue, threading, json, sys, os, logging
+import struct, time, socket, queue, threading, json, sys, os, logging, logging.handlers
 
 CRITICAL=50
 ERROR=40
@@ -29,10 +29,13 @@ else:
   log_serverity = INFO
 
 FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
-logging.basicConfig(filename=log_path + "/" + log_filename ,format=FORMAT)
+#logging.basicConfig(filename=log_path + "/" + log_filename ,format=FORMAT)
+logging.getLogger('').setLevel(INFO)
+handler = logging.handlers.RotatingFileHandler(log_path + "/" + log_filename, maxBytes=10000000, backupCount=5)
+handler.setFormatter(logging.Formatter(FORMAT))
 logging.addLevelName(25, "NOTICE")
+logging.getLogger("").addHandler(handler)
 logger = logging.getLogger("system")
-logger.setLevel( log_serverity )
 
 
 logger.log (INFO, "sbpd started")
@@ -213,7 +216,6 @@ class ICMP_link():
     self.cluster = cluster
 
     self.logger = logging.getLogger("ClusterID:" + str(cluster.ID) + " NodeID:" + str(self.cnode.ID) + " LinkID:" + str(self.lID) )
-    self.logger.setLevel( log_serverity )
 
     self.tx = send_msg(self)
     self.rxq = queue.Queue() 
@@ -233,7 +235,6 @@ class cluster():
     self.NodeID = ""
     self.Nodes = {}
     self.logger = logging.getLogger("ClusterID:" + str(self.ID))
-    self.logger.setLevel( log_serverity )
 
   def create_nodes(self):
     for i in self.config["Members"]:
@@ -255,7 +256,6 @@ class cnodes():
     self.status = True
 
     self.logger = logging.getLogger("ClusterID:" + str(cluster.ID) + " NodeID:" + str(self.ID))
-    self.logger.setLevel( log_serverity ) 
 
   def create_links(self):
     for i in self.cluster.config["ICMP_links"]:
