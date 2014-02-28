@@ -305,10 +305,10 @@ class cnodes():
 
   def create_links(self):
     for i in self.cluster.config["links"]:
+      if len(i['Nodes']) != 2:
+          print("ERROR")
       if i['type'] == "icmp":
         own_link = False
-        if len(i['Nodes']) != 2:
-          print("ERROR")
         for x in i['Nodes']:
           if x['NodeID'] == self.cluster.NodeID:
             own_link = True
@@ -318,8 +318,7 @@ class cnodes():
         if own_link:
           self.icmp_links[i['ID']] = link(self,self.cluster,i['interval'],ip,i['ICMPIP'],dst_nID,i['ID'],i['maxloss'], 0) 
       elif i['type'] == "udp":
-        if len(i['Nodes']) != 2:
-          print("ERROR")
+        own_link = False
         for x in i['Nodes']:
           if x['NodeID'] == self.cluster.NodeID:
             own_link = True
