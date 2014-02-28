@@ -304,30 +304,31 @@ class cnodes():
     self.logger = logging.getLogger("ClusterID:" + str(cluster.ID) + " NodeID:" + str(self.ID))
 
   def create_links(self):
-    for i in self.cluster.config["ICMP_links"]:
-      own_link = False
-      if len(i['Nodes']) != 2:
-        print("ERROR")
-      for x in i['Nodes']:
-        if x['NodeID'] == self.cluster.NodeID:
-          own_link = True
-        else:
-          dst_nID = x['NodeID']
-          ip = x['IP']
-      if own_link:
-        self.icmp_links[i['ID']] = link(self,self.cluster,i['interval'],ip,i['ICMPIP'],dst_nID,i['ID'],i['maxloss'], 0)
-    for i in self.cluster.config["UDP_links"]:
-      if len(i['Nodes']) != 2:
-        print("ERROR")
-      for x in i['Nodes']:
-        if x['NodeID'] == self.cluster.NodeID:
-          own_link = True
-          src_ip = x['IP']
-        else:
-          dst_nID = x['NodeID']
-          dst_ip = x['IP']
-      if own_link:
-        self.udp_links[i['ID']] = link(self,self.cluster,i['interval'],src_ip,dst_ip,dst_nID,i['ID'],i['maxloss'], 1)
+    for i in self.cluster.config["links"]:
+      if i['type'] == "icmp":
+        own_link = False
+        if len(i['Nodes']) != 2:
+          print("ERROR")
+        for x in i['Nodes']:
+          if x['NodeID'] == self.cluster.NodeID:
+            own_link = True
+          else:
+            dst_nID = x['NodeID']
+            ip = x['IP']
+        if own_link:
+          self.icmp_links[i['ID']] = link(self,self.cluster,i['interval'],ip,i['ICMPIP'],dst_nID,i['ID'],i['maxloss'], 0) 
+      elif i['type'] == "udp":
+        if len(i['Nodes']) != 2:
+          print("ERROR")
+        for x in i['Nodes']:
+          if x['NodeID'] == self.cluster.NodeID:
+            own_link = True
+            src_ip = x['IP']
+          else:
+            dst_nID = x['NodeID']
+            dst_ip = x['IP']
+        if own_link:
+          self.udp_links[i['ID']] = link(self,self.cluster,i['interval'],src_ip,dst_ip,dst_nID,i['ID'],i['maxloss'], 1)
 
   def start_all_links(self):
     for i in self.icmp_links:
