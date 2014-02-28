@@ -187,7 +187,10 @@ class hb_tx(heartbeat,threading.Thread):
   def tx_udp(self,src_ip,host,dst_nID,lID,seq,ack,ClusterID,NodeID):
     dst_ip = socket.gethostbyname(host)
     data = self.pack_hb(NodeID,dst_nID,lID,seq,ack, ClusterID, NodeID)
-    self.sock_udp.sendto(data, (dst_ip, self.system.udp_port))
+    try:
+      self.sock_udp.sendto(data, (dst_ip, self.system.udp_port))
+    except:
+      self.logger.log(DEBUG, "sending of udp packet prohibited")
 
   def tx_icmp(self,src_ip,host,dst_nID,lID,seq,ack,ClusterID,NodeID):
     dst_ip = socket.gethostbyname(host)
