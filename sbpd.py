@@ -242,6 +242,13 @@ class get_msg(threading.Thread):
           self.link.logger.log (DEBUG, "stopping get_msg thread")
           return
         self.link.acknum = pkt['seqnum']
+        
+        if pkt['acknum'] < self.link.seqnum - self.link.maxloss and self.link.get_ack:
+          self.link.logger.log (NOTICE, "tx out-of-service")
+          self.link.get_ack = False
+        elif pkt['acknum'] > self.link.seqnum - self.link.maxloss and not self.link.get_ack:
+          self.link.logger.log (NOTICE, "tx in-service")
+          self.link.get_ack = True 
         self.link.rxq.task_done()
         if not self.link.status:
           if self.link.type == 0: 
@@ -274,6 +281,7 @@ class link():
     self.hb_loss = 0
     self.cluster = cluster
     self.own_ip= own_ip
+    self.get_ack = True
     self.type = ltype
     if self.type == 0:
       self.typename = "ICMP"
