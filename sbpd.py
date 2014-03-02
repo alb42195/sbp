@@ -26,11 +26,11 @@ if "Logging" in config:
 else:
   log_path = '/var/log/'
   log_filename = 'sbpd.log'
-  log_serverity = INFO
+  log_serverity = DEBUG
 
 FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 #logging.basicConfig(filename=log_path + "/" + log_filename ,format=FORMAT)
-logging.getLogger('').setLevel(INFO)
+logging.getLogger('').setLevel(log_serverity)
 handler = logging.handlers.RotatingFileHandler(log_path + "/" + log_filename, maxBytes=10000000, backupCount=5)
 handler.setFormatter(logging.Formatter(FORMAT))
 logging.addLevelName(25, "NOTICE")
@@ -49,7 +49,6 @@ class heartbeat():
     return data_pack
 
   def unpack_hb(self, data_pack):
-    #print(len(data_pack))
     try:
       upacked = struct.unpack('HHHHIId', data_pack)
       pkt = {}
@@ -154,14 +153,19 @@ class hb_rx_icmp(heartbeat,threading.Thread):
       ip_header = self.unpack_ip_addr(raw_pkt[0][:20])
       if data_pkt['dst_nID'] != self.system.cluster[data_pkt['ClusterID']].NodeID:
         logger.log(INFO, "packet received with wrong dest node ID (" + str(data_pkt['dst_nID']) + ")")
+        print(data_pkt) 
         continue
-      try:
-        self.system.cluster[data_pkt['ClusterID']].Nodes[data_pkt['src_nID']].icmp_links[data_pkt['lID']].rxq.put(data_pkt)
-      except:
-        self.logger.log(WARNING, "packet can't be dispatched to link")
-        print("EEEERRRROROO")
-      #self.rxq[data_pkt['lID']].rxq.put(data_pkt) 
-      #print(data_pkt)
+      if data_pkt['src_nID'] == data_pkt['dst_nID']:
+        try:
+          dispatch_nodeID = self.system.cluster[data_pkt['ClusterID']].all_links[data_pkt['lID']]
+          self.system.cluster[data_pkt['ClusterID']].Nodes[self.system.cluster[data_pkt['ClusterID']].all_links[data_pkt['lID']]].icmp_links[data_pkt['lID']].icmp_hop.rxq.put(data_pkt)
+        except:
+         self.logger.log(WARNING, "ICMP hop packet received, which can't be distributed") 
+      else:
+        try:
+          self.system.cluster[data_pkt['ClusterID']].Nodes[data_pkt['src_nID']].icmp_links[data_pkt['lID']].rxq.put(data_pkt)
+        except:
+          self.logger.log(WARNING, "packet can't be dispactched to any link ClusterID:" + str(data_pkt['ClusterID']) + " NodeID:" + str(data_pkt['src_nID']) + " LinkID:" + str(data_pkt['lID']))  
       
 
 class hb_tx(heartbeat,threading.Thread):
@@ -178,7 +182,7 @@ class hb_tx(heartbeat,threading.Thread):
   def run(self):
     while True:
       x = self.txq.get()
-      if x[0] == 0:
+      if x[0] == 0 or x[0] == 2:
         self.tx_icmp(x[1],x[2],x[3],x[4],x[5],x[6],x[7],x[8])
       elif x[0] == 1:
         self.tx_udp(x[1],x[2],x[3],x[4],x[5],x[6],x[7],x[8])
@@ -203,18 +207,20 @@ class hb_tx(heartbeat,threading.Thread):
     pkt = ip_header + icmp_header + data
     self.sock_icmp.sendto(pkt, (dst_ip, 1))
 
-
 class send_msg(threading.Thread):
   def __init__(self,link):
     threading.Thread.__init__(self)
     self.daemon = True
     self.link = link
+    self.active = threading.Event()
 
   def run(self):
     while True:
-      time.sleep(self.link.time)
       self.link.seqnum += 1
       self.link.cluster.txq.put([self.link.type,self.link.src_ip, self.link.dst_ip,self.link.dst_nID,self.link.lID,self.link.seqnum,self.link.acknum,self.link.cluster.ID,self.link.cluster.NodeID])
+      if self.active.wait(self.link.time):
+        self.link.logger.log (DEBUG, "stopping icmp tx thread")
+        return
       
 
 class get_msg(threading.Thread):
@@ -225,23 +231,71 @@ class get_msg(threading.Thread):
     self.cnode = cnode
 
   def run(self):
+    if self.link.type == 0:
+      self.icmp()
+    elif self.link.type == 1:
+      self.udp()
+    elif self.link.type == 2:
+      self.icmp_hop()
+
+
+  def icmp(self):
     while True:
       try:
-        pkt = self.link.rxq.get(timeout=self.link.time*self.link.maxloss) 
+        pkt = self.link.rxq.get(timeout=self.link.time*self.link.maxloss)
+        self.link.acknum = pkt['seqnum']
+        self.link.rxq.task_done()
+        if not self.link.status:
+          self.link.icmp_hop_stop()
+          self.link.status = True
+          self.link.logger.log(NOTICE, "in-service")
+          self.cnode.check_split()
+      except queue.Empty:
+        if self.link.status:
+          self.link.icmp_hop_start()
+          self.link.logger.log(WARNING, "out-of-service")
+          self.link.status = False
+          self.link.cnode.check_split()
+ 
+  def udp(self):
+    while True:
+      try:
+        pkt = self.link.rxq.get(timeout=self.link.time*self.link.maxloss)
         self.link.acknum = pkt['seqnum']
         self.link.rxq.task_done()
         if not self.link.status:
           self.link.status = True
-          self.link.logger.log(NOTICE, "in-service") 
+          self.link.logger.log(NOTICE, "in-service")
           self.cnode.check_split()
       except queue.Empty:
         if self.link.status:
-          self.link.logger.log(WARNING, "out-of-service") 
+          self.link.logger.log(WARNING, "out-of-service")
           self.link.status = False
           self.link.cnode.check_split()
 
+
+  def icmp_hop(self):
+    self.link.logger.log (DEBUG, "starting icmp_hop thread")
+    while True:
+      try:
+        pkt = self.link.rxq.get(timeout=self.link.time*self.link.maxloss)
+        if not pkt:
+          self.link.logger.log (DEBUG, "stopping icmp_hop thread")
+          return
+        self.link.acknum = pkt['seqnum']
+        self.link.rxq.task_done()
+        if not self.link.status:
+          self.link.status = True
+          self.link.logger.log(NOTICE, "in-service")
+      except queue.Empty:
+        if self.link.status:
+          self.link.logger.log(WARNING, "out-of-service")
+          self.link.status = False
+    self.link.status = False
+
+
 class link():
-  def __init__(self,cnode,cluster,time,src_ip,dst_ip,dst_nID,lID,maxloss,ltype):
+  def __init__(self,cnode,cluster,time,src_ip,dst_ip,dst_nID,lID,maxloss,ltype,own_ip=None):
     self.status = True
     self.time = time
     self.cnode = cnode
@@ -252,14 +306,19 @@ class link():
     self.seqnum = 0
     self.acknum = 0
     self.lID = lID
+    self.hb_loss = 0
     self.cluster = cluster
+    self.own_ip= own_ip
     self.type = ltype
     if self.type == 0:
       self.typename = "ICMP"
     elif self.type == 1:
       self.typename = "UDP"
+    elif self.type == 2:
+      self.typename = "ICMP_HOP"
+      self.status = False 
 
-    self.logger = logging.getLogger("ClusterID:" + str(cluster.ID) + " NodeID:" + str(self.cnode.ID) + " " + self.typename + " LinkID:" + str(self.lID) )
+    self.logger = logging.getLogger("ClusterID:" + str(cluster.ID) + " NodeID:" + str(self.cnode.ID) + " LinkID:" + str(self.lID) + " " + self.typename  )
 
     self.tx = send_msg(self)
     self.rxq = queue.Queue() 
@@ -269,16 +328,36 @@ class link():
     self.tx.start()
     self.rx.start()   
 
+  def icmp_hop_start(self):
+    if self.type != 0:
+      self.logger.log(DEBUG, "icmp_hop link only by icmp links available")
+      return
+    self.icmp_hop = link(self.cnode,self.cluster,self.time,self.own_ip,self.dst_ip,self.cluster.NodeID,self.lID,self.maxloss,2)
+    self.icmp_hop.tx.start()
+    self.icmp_hop.rx.start()   
+    self.logger.log (INFO, "starting ICMP hop verification")
+
+  def icmp_hop_stop(self):
+    if self.type != 0:
+      self.logger.log(DEBUG, "icmp_hop link only by icmp links available")
+      return
+    self.icmp_hop.rxq.put(False)   
+    self.icmp_hop.tx.active.set()
+    del self.icmp_hop.tx
+    del self.icmp_hop.rx
+    self.logger.log (INFO, "stopping ICMP hop verification")
+    
+
 class cluster():
-  #def __init__(self,config,rxq,txq):
-  def __init__(self,config,txq):
+  def __init__(self,config,system):
+    self.system = system
     self.config = config
-    #self.rxq = rxq
-    self.txq = txq
+    self.txq = self.system.txq
     self.ID = self.config["ID"]
     self.hostname = socket.gethostname()
     self.NodeID = ""
     self.Nodes = {}
+    self.all_links = {}
     self.logger = logging.getLogger("ClusterID:" + str(self.ID))
 
   def create_nodes(self):
@@ -312,11 +391,13 @@ class cnodes():
         for x in i['Nodes']:
           if x['NodeID'] == self.cluster.NodeID:
             own_link = True
+            src_ip = x['IP']
           else:
             dst_nID = x['NodeID']
             ip = x['IP']
         if own_link:
-          self.icmp_links[i['ID']] = link(self,self.cluster,i['interval'],ip,i['ICMPIP'],dst_nID,i['ID'],i['maxloss'], 0) 
+          self.icmp_links[i['ID']] = link(self,self.cluster,i['interval'],ip,i['ICMPIP'],dst_nID,i['ID'],i['maxloss'],0,src_ip)
+          self.cluster.all_links[i['ID']] = self.ID
       elif i['type'] == "udp":
         own_link = False
         for x in i['Nodes']:
@@ -327,7 +408,8 @@ class cnodes():
             dst_nID = x['NodeID']
             dst_ip = x['IP']
         if own_link:
-          self.udp_links[i['ID']] = link(self,self.cluster,i['interval'],src_ip,dst_ip,dst_nID,i['ID'],i['maxloss'], 1)
+          self.udp_links[i['ID']] = link(self,self.cluster,i['interval'],src_ip,dst_ip,dst_nID,i['ID'],i['maxloss'],1)
+          self.cluster.all_links[i['ID']] = self.ID
 
   def start_all_links(self):
     for i in self.icmp_links:
@@ -364,7 +446,6 @@ class system():
     self.config = config
     self.udp_port = 7878
     self.txq = queue.Queue()
-    #self.rxq = queue.Queue()
     self.tx = hb_tx(self.txq,self)  
     self.rx_icmp = hb_rx_icmp(self) 
     self.rx_udp = hb_rx_udp(self) 
@@ -382,8 +463,7 @@ class system():
       print("Section 'Cluster' missing in config file")
       sys.exit(1)
     for i in self.config['Cluster']:
-      #self.cluster[i['ID']] = cluster(i,self.rxq,self.txq)
-      self.cluster[i['ID']] = cluster(i,self.txq)
+      self.cluster[i['ID']] = cluster(i,self)
       self.cluster[i['ID']].create_nodes()
       self.cluster[i['ID']].create_all_links()
 
