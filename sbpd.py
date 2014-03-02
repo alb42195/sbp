@@ -231,69 +231,34 @@ class get_msg(threading.Thread):
     self.cnode = cnode
 
   def run(self):
-    if self.link.type == 0:
-      self.icmp()
-    elif self.link.type == 1:
-      self.udp()
-    elif self.link.type == 2:
-      self.icmp_hop()
-
-
-  def icmp(self):
-    while True:
-      try:
-        pkt = self.link.rxq.get(timeout=self.link.time*self.link.maxloss)
-        self.link.acknum = pkt['seqnum']
-        self.link.rxq.task_done()
-        if not self.link.status:
-          self.link.icmp_hop_stop()
-          self.link.status = True
-          self.link.logger.log(NOTICE, "in-service")
-          self.cnode.check_split()
-      except queue.Empty:
-        if self.link.status:
-          self.link.icmp_hop_start()
-          self.link.logger.log(WARNING, "out-of-service")
-          self.link.status = False
-          self.link.cnode.check_split()
+    self.do_work()
  
-  def udp(self):
-    while True:
-      try:
-        pkt = self.link.rxq.get(timeout=self.link.time*self.link.maxloss)
-        self.link.acknum = pkt['seqnum']
-        self.link.rxq.task_done()
-        if not self.link.status:
-          self.link.status = True
-          self.link.logger.log(NOTICE, "in-service")
-          self.cnode.check_split()
-      except queue.Empty:
-        if self.link.status:
-          self.link.logger.log(WARNING, "out-of-service")
-          self.link.status = False
-          self.link.cnode.check_split()
-
-
-  def icmp_hop(self):
-    self.link.logger.log (DEBUG, "starting icmp_hop thread")
+  def do_work(self):
+    self.link.logger.log (DEBUG, "starting get_msg thread")
     while True:
       try:
         pkt = self.link.rxq.get(timeout=self.link.time*self.link.maxloss)
         if not pkt:
-          self.link.logger.log (DEBUG, "stopping icmp_hop thread")
+          self.link.logger.log (DEBUG, "stopping get_msg thread")
           return
         self.link.acknum = pkt['seqnum']
         self.link.rxq.task_done()
         if not self.link.status:
+          if self.link.type == 0: 
+            self.link.icmp_hop_stop()
           self.link.status = True
           self.link.logger.log(NOTICE, "in-service")
+          if self.link.type != 2:
+            self.cnode.check_split()
       except queue.Empty:
         if self.link.status:
+          if self.link.type == 0: 
+            self.link.icmp_hop_start()
           self.link.logger.log(WARNING, "out-of-service")
           self.link.status = False
-    self.link.status = False
-
-
+          if self.link.type != 2:
+            self.link.cnode.check_split()
+ 
 class link():
   def __init__(self,cnode,cluster,time,src_ip,dst_ip,dst_nID,lID,maxloss,ltype,own_ip=None):
     self.status = True
