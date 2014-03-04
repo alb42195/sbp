@@ -255,6 +255,7 @@ class get_msg(threading.Thread):
             self.link.icmp_hop_stop()
           self.link.status = True
           self.link.logger.log(NOTICE, "in-service")
+          self.link.cluster.system.sock_api.alarmq.put(self.link.alarm_ins)
           if self.link.type != 2:
             self.cnode.check_split()
       except queue.Empty:
@@ -262,6 +263,7 @@ class get_msg(threading.Thread):
           if self.link.type == 0: 
             self.link.icmp_hop_start()
           self.link.logger.log(WARNING, "out-of-service")
+          self.link.cluster.system.sock_api.alarmq.put(self.link.alarm_oos)
           self.link.status = False
           if self.link.type != 2:
             self.link.cnode.check_split()
@@ -290,8 +292,12 @@ class link():
     elif self.type == 2:
       self.typename = "ICMP_HOP"
       self.status = False 
+    self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0}
+    self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1}
+    
+    
 
-    self.logger = logging.getLogger("ClusterID:" + str(cluster.ID) + " NodeID:" + str(self.cnode.ID) + " LinkID:" + str(self.lID) + " " + self.typename  )
+    self.logger = logging.getLogger("ClusterID:" + str(self.cluster.ID) + " NodeID:" + str(self.cnode.ID) + " LinkID:" + str(self.lID) + " " + self.typename  )
 
     self.tx = send_msg(self)
     self.rxq = queue.Queue() 
@@ -332,6 +338,7 @@ class cluster():
     self.Nodes = {}
     self.all_links = {}
     self.logger = logging.getLogger("ClusterID:" + str(self.ID))
+    self.apiq = queue.Queue()
 
   def create_nodes(self):
     for i in self.config["Members"]:
@@ -435,15 +442,18 @@ class system():
     if 'Cluster' not in  self.config:
       print("Section 'Cluster' missing in config file")
       sys.exit(1)
+    self.sock_api = sock_api(self)
     for i in self.config['Cluster']:
       self.cluster[i['ID']] = cluster(i,self)
       self.cluster[i['ID']].create_nodes()
       self.cluster[i['ID']].create_all_links()
-
+      self.sock_api.conn[i['ID']] = {}
+  
   def start(self):
     for i in self.cluster:
       for x in self.cluster[i].Nodes:
         self.cluster[i].Nodes[x].start_all_links()
+    self.sock_api.start()
     self.monitor()  
 
   def monitor(self):
@@ -457,6 +467,101 @@ class system():
       except KeyboardInterrupt:
         logger.log(INFO, "sbpd stop on keyboard interrupt") 
         sys.exit(0)
+
+class api_new_conn(threading.Thread):
+  def __init__(self,sock_api):
+    threading.Thread.__init__(self)
+    self.daemon = True
+    self.conn_no = 0
+    self.sock_api = sock_api
+    self.start()
+
+  def run(self):
+    while True:
+      conn, addr = self.sock_api.sock.accept()
+      try:
+        raw_data = conn.recv(1024) 
+        data = struct.unpack('H', raw_data) 
+        clusterID = data[0]
+        if clusterID not in self.sock_api.conn:
+          self.sock_api.logger.log(INFO, "registered with wrong cluster ID")
+          conn.close()
+        else:
+          self.conn_no += 1
+          self.sock_api.conn[clusterID][self.conn_no] = api_conn(conn,self.sock_api)
+      except:
+        self.sock_api.logger.log(ERROR, "unexpected error")
+        conn.close()
+ 
+
+class api_conn(threading.Thread):
+  def __init__(self,conn,sock_api):
+    threading.Thread.__init__(self)
+    self.daemon = True
+    self.sock_api = sock_api
+    self.conn = conn
+    self.txq = queue.Queue()
+    self.start()
+
+  def msg(self,alarm):
+    if "lID" in alarm:
+      return struct.pack('HHHHHH', 300, alarm['clusterID'], alarm['cnodeID'], alarm['lID'], alarm['linktype'], alarm['state'])
+    elif "cnodeID" in alarm:
+      return struct.pack('HHHH', 200, alarm['clusterID'], alarm['cnodeID'], alarm['state'])
+    elif "clusterID" in alarm:
+      return struct.pack('HHH', 100, alarm['clusterID'], alarm['state'])
+
+  def run(self):
+    while True:
+      alarm = self.txq.get()
+      try:
+        self.conn.send(self.msg(alarm))
+      except:
+        self.conn.close()
+        return
+
+class sock_api(threading.Thread):
+  def __init__ (self,system):
+    threading.Thread.__init__(self)
+    self.daemon = True
+    self.conn = {}
+    self.logger = logging.getLogger("sock api")
+    self.sockfile = "sbpd.sock"
+    self.alarmq = queue.Queue()
+    self.system = system
+  
+  def run(self):
+    self.new_conn = self.listen()
+    self.do_work()
+
+  def do_work(self):
+    while True:
+      alarm = self.alarmq.get()
+      dead_thread = {}
+      for k,v in self.conn[alarm['clusterID']].items():
+        if v.is_alive():
+          v.txq.put(alarm)
+        else:
+          dead_thread[alarm['clusterID']] = k  
+      self.alarmq.task_done()
+      for k,v in dead_thread.items():
+        print(self.conn)
+        del self.conn[k][v]
+        print("del")
+        print(self.conn)
+      del dead_thread
+
+  def listen(self):
+    if os.path.exists(self.sockfile):
+      os.remove(self.sockfile)
+    self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    self.sock.bind(self.sockfile)
+    self.sock.listen(5)
+    self.new_conn = api_new_conn(self)
+   
+ 
+
+
 
 x = system(config)
 x.create()
