@@ -229,6 +229,7 @@ class get_msg(threading.Thread):
     self.daemon = True
     self.link = link
     self.cnode = cnode
+    self.alarmq = self.cnode.alarmq
 
   def run(self):
     self.do_work()
@@ -255,7 +256,7 @@ class get_msg(threading.Thread):
             self.link.icmp_hop_stop()
           self.link.status = True
           self.link.logger.log(NOTICE, "in-service")
-          self.link.cluster.system.sock_api.alarmq.put(self.link.alarm_ins)
+          self.alarmq.put(self.link.alarm_ins)
           if self.link.type != 2:
             self.cnode.check_split()
       except queue.Empty:
@@ -263,7 +264,7 @@ class get_msg(threading.Thread):
           if self.link.type == 0: 
             self.link.icmp_hop_start()
           self.link.logger.log(WARNING, "out-of-service")
-          self.link.cluster.system.sock_api.alarmq.put(self.link.alarm_oos)
+          self.alarmq.put(self.link.alarm_oos)
           self.link.status = False
           if self.link.type != 2:
             self.link.cnode.check_split()
@@ -294,7 +295,7 @@ class link():
       self.status = False 
     self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0}
     self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1}
-    
+    self.alarmq = self.cnode.alarmq 
     
 
     self.logger = logging.getLogger("ClusterID:" + str(self.cluster.ID) + " NodeID:" + str(self.cnode.ID) + " LinkID:" + str(self.lID) + " " + self.typename  )
@@ -338,7 +339,9 @@ class cluster():
     self.Nodes = {}
     self.all_links = {}
     self.logger = logging.getLogger("ClusterID:" + str(self.ID))
-    self.apiq = queue.Queue()
+    #self.apiq = queue.Queue()
+    self.alarmq = self.system.sock_api.alarmq
+
 
   def create_nodes(self):
     for i in self.config["Members"]:
@@ -359,8 +362,10 @@ class cnodes():
     self.icmp_links = {}
     self.udp_links = {}
     self.status = {'icmp': True, 'udp': True}
-
+    self.alarmq = self.cluster.alarmq
     self.logger = logging.getLogger("ClusterID:" + str(cluster.ID) + " NodeID:" + str(self.ID))
+    self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0}
+    self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1}
 
   def create_links(self):
     for i in self.cluster.config["links"]:
@@ -406,8 +411,10 @@ class cnodes():
     if self.status['icmp'] != status:
       if status:
         self.logger.log (NOTICE, "ICMP path in-service")
+        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1, "linktype": 0})
       else:
         self.logger.log (CRITICAL, "ICMP path out-of-service")
+        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0, "linktype": 0})
     self.status['icmp'] = status
     status = False
     for i in self.udp_links:
@@ -416,8 +423,10 @@ class cnodes():
     if self.status['udp'] != status:
       if status:
         self.logger.log (NOTICE, "UDP path in-service")
+        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1, "linktype": 1})
       else:
         self.logger.log (CRITICAL, "UDP path out-of-service")
+        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0, "linktype": 1})
     self.status['udp'] = status
     
 
@@ -431,7 +440,7 @@ class system():
     self.rx_udp = hb_rx_udp(self) 
     self.start_queues()
     self.cluster = {}
-      
+     
 
   def start_queues(self):
     self.tx.start()
@@ -505,11 +514,11 @@ class api_conn(threading.Thread):
 
   def msg(self,alarm):
     if "lID" in alarm:
-      return struct.pack('HHHHHH', 300, alarm['clusterID'], alarm['cnodeID'], alarm['lID'], alarm['linktype'], alarm['state'])
+      return struct.pack('HHHHHH', 301, alarm['state'], alarm['clusterID'], alarm['cnodeID'], alarm['linktype'], alarm['lID'])
     elif "cnodeID" in alarm:
-      return struct.pack('HHHH', 200, alarm['clusterID'], alarm['cnodeID'], alarm['state'])
+      return struct.pack('HHHHH', 201, alarm['state'], alarm['clusterID'], alarm['cnodeID'], alarm['linktype'])
     elif "clusterID" in alarm:
-      return struct.pack('HHH', 100, alarm['clusterID'], alarm['state'])
+      return struct.pack('HHH', 101, alarm['state'], alarm['clusterID'])
 
   def run(self):
     while True:
@@ -545,10 +554,7 @@ class sock_api(threading.Thread):
           dead_thread[alarm['clusterID']] = k  
       self.alarmq.task_done()
       for k,v in dead_thread.items():
-        print(self.conn)
         del self.conn[k][v]
-        print("del")
-        print(self.conn)
       del dead_thread
 
   def listen(self):
