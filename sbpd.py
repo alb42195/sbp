@@ -2,6 +2,27 @@
 
 import struct, time, socket, queue, threading, json, sys, os, logging, logging.handlers
 
+
+def run_as_daemon():
+  if __name__ == "__main__":
+    try:
+      pid = os.fork()
+      if pid > 0:
+        sys.exit(0)
+    except OSError:
+      sys.exit(1)
+
+    os.chdir("/")
+    os.setsid()
+    os.umask(0)
+
+    try:
+      pid = os.fork()
+      if pid > 0:
+        sys.exit(0)
+    except OSError:
+      sys.exit(1)
+
 CRITICAL=50
 ERROR=40
 WARNING=30
@@ -20,6 +41,15 @@ else:
   sys.exit(1)
 with open('sbpd.conf') as f:
   config = json.load(f)
+
+daemon = True
+if "System" in config:
+  if "forground" in config['System']:
+    if config['System']['forground']:
+      daemon = False
+
+if daemon:      
+  run_as_daemon()
 
 log_file = '/var/log/sbpd.log'
 log_serverity = DEBUG
