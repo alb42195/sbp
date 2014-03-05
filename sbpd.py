@@ -21,17 +21,26 @@ else:
 with open('sbpd.conf') as f:
   config = json.load(f)
 
+log_file = '/var/log/sbpd.log'
+log_serverity = DEBUG
+log_file_size = 1000000000 
+log_file_no = 5
 if "Logging" in config:
-  print(config['Logging'])
-else:
-  log_path = '/var/log/'
-  log_filename = 'sbpd.log'
-  log_serverity = DEBUG
+  if "level" in config['Logging']:
+    log_serverity = config['Logging']['level']
+    log_serverity = log_serverity.upper()
+  if "logfile" in config['Logging']:
+    log_file = config['Logging']['logfile']
+  if "no_of_files" in config['Logging']:
+    log_file_no = config['Logging']['no_of_files']
+  if "max_file_size" in config['Logging']:
+    log_file_no = config['Logging']['max_file_size'] * 1000 * 1000
+
 
 FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 #logging.basicConfig(filename=log_path + "/" + log_filename ,format=FORMAT)
 logging.getLogger('').setLevel(log_serverity)
-handler = logging.handlers.RotatingFileHandler(log_path + "/" + log_filename, maxBytes=10000000, backupCount=5)
+handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=10000000, backupCount=5)
 handler.setFormatter(logging.Formatter(FORMAT))
 logging.addLevelName(25, "NOTICE")
 logging.getLogger("").addHandler(handler)
@@ -387,6 +396,9 @@ class cnodes():
         own_link = False
         for x in i['Nodes']:
           if x['NodeID'] == self.cluster.NodeID:
+            if not self.cluster.system.udp:
+              self.logger.log ( ERROR, "no udp port configured, can't setup udp links")
+              continue
             own_link = True
             src_ip = x['IP']
           else:
@@ -433,11 +445,20 @@ class cnodes():
 class system():
   def __init__(self,config):
     self.config = config
-    self.udp_port = 7878
+    if "System" not in self.config:
+      self.udp = False
+      #self.logger.log( INFO, "System section missing in config file")
+    else:
+      if "udp_port" in self.config["System"]:
+        self.udp_port = self.config["System"]['udp_port']
+        self.udp = True
+      else:
+        self.udp = False
     self.txq = queue.Queue()
     self.tx = hb_tx(self.txq,self)  
     self.rx_icmp = hb_rx_icmp(self) 
-    self.rx_udp = hb_rx_udp(self) 
+    if self.udp:
+      self.rx_udp = hb_rx_udp(self) 
     self.start_queues()
     self.cluster = {}
      
@@ -445,7 +466,8 @@ class system():
   def start_queues(self):
     self.tx.start()
     self.rx_icmp.start()
-    self.rx_udp.start()
+    if self.udp:
+      self.rx_udp.start()
     
   def create(self):
     if 'Cluster' not in  self.config:
@@ -542,9 +564,11 @@ class sock_api(threading.Thread):
     self.daemon = True
     self.conn = {}
     self.logger = logging.getLogger("sock api")
-    self.sockfile = "sbpd.sock"
-    self.alarmq = queue.Queue()
     self.system = system
+    self.sockfile = "sbpd.sock"
+    if "api" in self.system.config:
+      self.sockfile = self.system.config['api']['socket']
+    self.alarmq = queue.Queue()
     self.alarmbuffer = {}  
 
   def run(self):

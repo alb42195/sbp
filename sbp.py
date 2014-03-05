@@ -4,14 +4,18 @@ import socket, sys, os, time, struct, threading
 
 
 class sbp(threading.Thread):
-  def __init__(self,cb_func):
+  def __init__(self,sock_file,cb_func):
 
     self.cb_func = cb_func
-    sock_file= "sbpd.sock"
 
     #sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(sock_file)
+    while True:
+      try:
+        sock.connect(sock_file)
+        break
+      except ConnectionRefusedError:
+        time.sleep(5)
     tosend  = struct.pack('H', 1000)
     sock.send(tosend)
     while True:
@@ -56,4 +60,4 @@ def p(x):
   print(x)
 
 
-z=sbp(p)
+z=sbp("sbpd.sock",p)
