@@ -293,8 +293,8 @@ class link():
     elif self.type == 2:
       self.typename = "ICMP_HOP"
       self.status = False 
-    self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0}
-    self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1}
+    self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0, "msgid": 301}
+    self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1, "msgid": 301}
     self.alarmq = self.cnode.alarmq 
     
 
@@ -364,8 +364,8 @@ class cnodes():
     self.status = {'icmp': True, 'udp': True}
     self.alarmq = self.cluster.alarmq
     self.logger = logging.getLogger("ClusterID:" + str(cluster.ID) + " NodeID:" + str(self.ID))
-    self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0}
-    self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1}
+    self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0, "msgid": 201}
+    self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1, "msgid": 201}
 
   def create_links(self):
     for i in self.cluster.config["links"]:
@@ -411,10 +411,10 @@ class cnodes():
     if self.status['icmp'] != status:
       if status:
         self.logger.log (NOTICE, "ICMP path in-service")
-        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1, "linktype": 0})
+        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1, "linktype": 0, "msgid": 201})
       else:
         self.logger.log (CRITICAL, "ICMP path out-of-service")
-        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0, "linktype": 0})
+        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0, "linktype": 0, "msgid": 201})
     self.status['icmp'] = status
     status = False
     for i in self.udp_links:
@@ -423,10 +423,10 @@ class cnodes():
     if self.status['udp'] != status:
       if status:
         self.logger.log (NOTICE, "UDP path in-service")
-        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1, "linktype": 1})
+        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1, "linktype": 1, "msgid": 201})
       else:
         self.logger.log (CRITICAL, "UDP path out-of-service")
-        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0, "linktype": 1})
+        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0, "linktype": 1, "msgid": 201})
     self.status['udp'] = status
     
 
@@ -457,6 +457,7 @@ class system():
       self.cluster[i['ID']].create_nodes()
       self.cluster[i['ID']].create_all_links()
       self.sock_api.conn[i['ID']] = {}
+      self.sock_api.alarmbuffer[i['ID']] = {}
   
   def start(self):
     for i in self.cluster:
@@ -497,37 +498,43 @@ class api_new_conn(threading.Thread):
           conn.close()
         else:
           self.conn_no += 1
-          self.sock_api.conn[clusterID][self.conn_no] = api_conn(conn,self.sock_api)
+          self.sock_api.conn[clusterID][self.conn_no] = api_conn(conn,self.sock_api,clusterID)
       except:
         self.sock_api.logger.log(ERROR, "unexpected error")
         conn.close()
  
 
 class api_conn(threading.Thread):
-  def __init__(self,conn,sock_api):
+  def __init__(self,conn,sock_api,ClusterID):
     threading.Thread.__init__(self)
     self.daemon = True
     self.sock_api = sock_api
     self.conn = conn
+    self.ClusterID = ClusterID
     self.txq = queue.Queue()
     self.start()
 
   def msg(self,alarm):
     if "lID" in alarm:
-      return struct.pack('HHHHHH', 301, alarm['state'], alarm['clusterID'], alarm['cnodeID'], alarm['linktype'], alarm['lID'])
+      return struct.pack('HHHHHHH', 14, alarm['msgid'], alarm['state'], alarm['clusterID'], alarm['cnodeID'], alarm['linktype'], alarm['lID'])
     elif "cnodeID" in alarm:
-      return struct.pack('HHHHH', 201, alarm['state'], alarm['clusterID'], alarm['cnodeID'], alarm['linktype'])
-    elif "clusterID" in alarm:
-      return struct.pack('HHH', 101, alarm['state'], alarm['clusterID'])
+      return struct.pack('HHHHHH', 12, alarm['msgid'], alarm['state'], alarm['clusterID'], alarm['cnodeID'], alarm['linktype'])
 
   def run(self):
+    self.send_buf()
     while True:
       alarm = self.txq.get()
       try:
         self.conn.send(self.msg(alarm))
+        #time.sleep(0.001)
       except:
         self.conn.close()
         return
+
+  def send_buf(self):
+    for i in self.sock_api.alarmbuffer[self.ClusterID]:
+      for x in self.sock_api.alarmbuffer[self.ClusterID][i].values():
+        self.txq.put(x) 
 
 class sock_api(threading.Thread):
   def __init__ (self,system):
@@ -538,10 +545,37 @@ class sock_api(threading.Thread):
     self.sockfile = "sbpd.sock"
     self.alarmq = queue.Queue()
     self.system = system
-  
+    self.alarmbuffer = {}  
+
   def run(self):
     self.new_conn = self.listen()
     self.do_work()
+
+
+  def buffer(self,alarm):
+    if alarm['state'] != 0:
+      try:
+        if alarm['msgid'] > 300:
+          del self.alarmbuffer[alarm['clusterID']][alarm['msgid']][alarm['lID']]
+        elif alarm['msgid'] > 200: 
+          del self.alarmbuffer[alarm['clusterID']][alarm['msgid']][alarm['linktype']]
+      except KeyError:
+        self.logger.log( DEBUG, "alarm not buffered " + str(alarm) )
+    else:
+      if alarm['msgid'] > 300:
+        if alarm['msgid'] in self.alarmbuffer[alarm['clusterID']]:
+          self.alarmbuffer[alarm['clusterID']][alarm['msgid']][alarm['lID']] = alarm
+        else:
+          self.alarmbuffer[alarm['clusterID']][alarm['msgid']] = {alarm['lID']: alarm }
+        return
+      elif alarm['msgid'] > 200:
+        if alarm['msgid'] in self.alarmbuffer[alarm['clusterID']]:
+          self.alarmbuffer[alarm['clusterID']][alarm['msgid']][alarm['linktype']] = alarm
+        else:
+          self.alarmbuffer[alarm['clusterID']][alarm['msgid']] = {alarm['linktype']: alarm } 
+        return
+      
+
 
   def do_work(self):
     while True:
@@ -552,6 +586,7 @@ class sock_api(threading.Thread):
           v.txq.put(alarm)
         else:
           dead_thread[alarm['clusterID']] = k  
+      self.buffer(alarm)
       self.alarmq.task_done()
       for k,v in dead_thread.items():
         del self.conn[k][v]
