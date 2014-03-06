@@ -145,6 +145,7 @@ class hb_rx_udp(heartbeat,threading.Thread):
     self.logger = logging.getLogger("RX UDP")
 
   def run(self):
+    time.sleep(0.1)
     self.rx_udp()
 
   def rx_udp(self):
@@ -177,6 +178,7 @@ class hb_rx_icmp(heartbeat,threading.Thread):
     self.logger = logging.getLogger("RX ICMP")
 
   def run(self):
+    time.sleep(0.1)
     self.rx_icmp()
    
   def rx_icmp(self):
@@ -285,9 +287,11 @@ class get_msg(threading.Thread):
         
         if pkt['acknum'] < self.link.seqnum - self.link.maxloss and self.link.get_ack:
           self.link.logger.log (NOTICE, "tx out-of-service")
+          self.alarmq.put(self.link.alarm_txo)
           self.link.get_ack = False
         elif pkt['acknum'] > self.link.seqnum - self.link.maxloss and not self.link.get_ack:
           self.link.logger.log (NOTICE, "tx in-service")
+          self.alarmq.put(self.link.alarm_txi)
           self.link.get_ack = True 
         self.link.rxq.task_done()
         if not self.link.status:
@@ -334,6 +338,8 @@ class link():
       self.status = False 
     self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0, "msgid": 301}
     self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1, "msgid": 301}
+    self.alarm_txo = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0, "msgid": 302}
+    self.alarm_txi = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1, "msgid": 302}
     self.alarmq = self.cnode.alarmq 
     
 
