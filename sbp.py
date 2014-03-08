@@ -1,14 +1,37 @@
 #!/usr/bin/python3
 
-import socket, sys, os, time, struct, threading
+#####################################################################################
+#
+# sbp - split brain prodection library for usage of sbpd.
+# Copyright (C) 2014 Albert Hayr <albert@hayr.at>
+#
+#   one line to give the library's name and an idea of what it does.
+#   Copyright (C) year  name of author
+#
+#   This library is free software; you can redistribute it and/or
+#   modify it under the terms of the GNU Lesser General Public
+#   License as published by the Free Software Foundation; either
+#   version 2.1 of the License, or (at your option) any later version.
+#
+#   This library is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#   Lesser General Public License for more details.
+#
+#   You should have received a copy of the GNU Lesser General Public
+#   License along with this library; if not, write to the Free Software
+#   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+#
+#####################################################################################
 
+
+import socket, sys, os, time, struct, threading
 
 class sbp(threading.Thread):
   def __init__(self,sock_file,cb_func):
 
     self.cb_func = cb_func
 
-    #sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     while True:
       try:
@@ -55,9 +78,3 @@ class sbp(threading.Thread):
       pkt['lID'], = struct.unpack('H', data[10:12])
     self.cb_func(pkt)
 
-
-def p(x):
-  print(x)
-
-
-z=sbp("sbpd.sock",p)

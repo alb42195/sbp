@@ -1,5 +1,27 @@
 #!/usr/bin/python3
 
+################################################################################
+#
+# sbpd - split brain prodection daemon
+# Copyright (C) 2014 Albert Hayr <albert@hayr.at>
+#
+#   This program is free software; you can redistribute it and/or
+#   modify it under the terms of the GNU General Public License
+#   as published by the Free Software Foundation; either version 2
+#   of the License, or (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+#
+################################################################################
+
+
 import struct, time, socket, queue, threading, json, sys, os, logging, logging.handlers
 
 
@@ -44,8 +66,8 @@ with open('sbpd.conf') as f:
 
 daemon = True
 if "System" in config:
-  if "forground" in config['System']:
-    if config['System']['forground']:
+  if "foreground" in config['System']:
+    if config['System']['foreground']:
       daemon = False
 
 if daemon:      
