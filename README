@@ -1,8 +1,15 @@
-sbp - split brain prodection is a small program which should help 
+sbp - split brain protection is a small program which should help 
 to avoid split brains in a cluster.
 
+Table of content:
 
-Overview:
+1   Overview
+2   Configuration
+3   sbp python library
+4   socket api
+
+
+1, Overview:
 
 The program send keep alive messages via UDP and ICMP. 
 
@@ -11,9 +18,9 @@ UDP messages will be send direct between the configured cluster nodes.
 
     +--------------+                        +--------------+
     |              |                        |              |
-    |              |+---------------------->|              |
+    |              |----------------------->|              |
     |    Node 1    |          UDP           |    Node 2    |
-    |              |<----------------------+|              |
+    |              |<-----------------------|              |
     |              |                        |              |
     +--------------+                        +--------------+
 
@@ -33,7 +40,7 @@ have to support ICMP type 0 and 8.
                  |              |
                  |              |
                  +--------------+
-i                  /  /    \  \
+                   /  /    \  \
                   /  /      \  \
                  /  /        \  \   ICMP response (type 0)
                 /  /          \  \
@@ -51,9 +58,103 @@ i                  /  /    \  \
     +--------------+          +--------------+
 
 
+Node 1 send the ICMP request to node 3, but with the source IP of 
+node 2, thus node 3 will send the response to node 2. Node 2 will do it
+vice versa. In the payload of the ICMP messages is a simple heartbeat 
+protocol with parameters like node ID, sequence number, acknowledge no. 
+and so on. Through this ICMP channels via node 3 a asynchronous
+communication is establish. Again the big advantage is, that on node 3 
+no additional software have to be installed.
+
+If the ICMP path went broken the node (e.g. node 1) will start to verify
+the connection to the client (node 3), to know which cluster node seems 
+to be isolated, it self or the opposite node.
+
+
+                 +--------------+
+                 |              |
+                 |              |
+                 |    Node 3    |
+                 |              |
+                 |              |
+                 +--------------+
+                   /  /  /   \  
+                  /  /  /     \  
+                 /  /  /       \       ICMP response (type 0)
+                /  /  /         \  
+               /  /  /           X     ICMP request (type 8) 
+              /  /  /             
+             /  /  /             
+            /  /  /             
+           /  /  /             
+    +--------------+          +--------------+
+    |              |          |              |
+    |              |          |              |
+    |    Node 1    |          |    Node 2    |
+    |              |          |              |
+    |              |          |              |
+    +--------------+          +--------------+
+
+
+Through these validations you should have enough information to make a 
+good decision if the opposite node dies or just a split brain happened.
+
+
+
+2, Configuration
+
 The main program (sbpd.py) runs as a daemon and needs a configuration 
-file to be runable. The configration file (sbpd.conf) have to be locate
+file to be run able. The configuration file (sbpd.conf) have to be locate
 in one of the following locations. /etc, /usr/local/etc or in the same 
 directory like sbpd.py self. 
 
-The configuration is JSON style and there are 3
+The configuration is JSON style and is on all cluster members the same.
+
+In first level there are 4 different objects: Cluster, System, Logging and api.
+
+The Cluster key contains a array. Each value of the array is a objects and 
+represent a cluster, thus each node can be a member of different clusters.
+This object defines a cluster and has the following values: 
+    ID =>   a unique ID to identify the cluster
+    Members =>  this is a another array of objects. Each object represent  
+                a cluster member (a node). Each of the cluster member objects
+                contains 2 values:
+                ID => node ID, have to be unique in the cluster
+                Hostname => hostname of the node
+    links =>  is a array of objects, each object represent a link between 2
+              nodes of the cluster and has following values:
+              ID => link ID, this have to be unique in the cluster
+              type => icmp or udp
+              interval => heartbeat interval in seconds e.g 1, 5 or 0.1  
+              maxloss =>  number of requests which can get lost before the 
+                          link is marked as broken.
+              ICMPIP => only available for link type icmp. It defines the
+                        IP address of the client (node 3) which should be 
+                        used for validation.
+              Nodes =>  is another array, but only 2 entries are allowed.
+                        Each entry is a object which defines 2 values.
+                        NodeID => The ID of node between the link is. 
+                        IP => The IP addresse which should be use on each node
+
+
+The System key contains a object with 2 values:
+    udp_port => The udp port which should be use for udp links. This is a 
+                cluster wide configuration. This parameter is MANDATORY if 
+                you like to use udp links.
+    foreground => boolean, if set to true daemon will run in foreground.
+                  The parameter is optional default value is false.
+    
+ 
+The Logging key contains a object with 4 values:
+    level =>  logging severity, values DEBUG, INFO, NOTICE, WARNING, ERROR 
+              and CRITICAL are allowed. Default value is INFO 
+    logfile =>  log file name and path e.g. "/var/log/sbpd.conf". This is also
+                the default path and file name.
+    max_file_size =>  The size in MB when the file should be rotated.
+                      Default size is 10 MB.
+    no_of_file => How many files should be keep on the system.
+                  Default value is 5.
+
+The api key contains only one value.
+    socket => path an name of socket file for api.
+              Default value "/run/sbpd.sock"
