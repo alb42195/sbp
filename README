@@ -1,0 +1,59 @@
+sbp - split brain prodection is a small program which should help 
+to avoid split brains in a cluster.
+
+
+Overview:
+
+The program send keep alive messages via UDP and ICMP. 
+
+UDP messages will be send direct between the configured cluster nodes.
+
+
+    +--------------+                        +--------------+
+    |              |                        |              |
+    |              |+---------------------->|              |
+    |    Node 1    |          UDP           |    Node 2    |
+    |              |<----------------------+|              |
+    |              |                        |              |
+    +--------------+                        +--------------+
+
+
+
+ICMP messages will be send via node 3. To have the best verification 
+node 3 should be one of the clients who are using the service of the 
+cluster, or at least a entry node in to our network which the client 
+flow will use. On Node 3 no software have to be installed, it just 
+have to support ICMP type 0 and 8. 
+
+
+                 +--------------+
+                 |              |
+                 |              |
+                 |    Node 3    |
+                 |              |
+                 |              |
+                 +--------------+
+i                  /  /    \  \
+                  /  /      \  \
+                 /  /        \  \   ICMP response (type 0)
+                /  /          \  \
+               /  /            \  \  ICMP request (type 8) 
+              /  /              \  \
+             /  /                \  \
+            /  /                  \  \
+           /  /                    \  \
+    +--------------+          +--------------+
+    |              |          |              |
+    |              |          |              |
+    |    Node 1    |          |    Node 2    |
+    |              |          |              |
+    |              |          |              |
+    +--------------+          +--------------+
+
+
+The main program (sbpd.py) runs as a daemon and needs a configuration 
+file to be runable. The configration file (sbpd.conf) have to be locate
+in one of the following locations. /etc, /usr/local/etc or in the same 
+directory like sbpd.py self. 
+
+The configuration is JSON style and there are 3
