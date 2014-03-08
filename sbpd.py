@@ -257,8 +257,8 @@ class send_msg(threading.Thread):
 
   def run(self):
     while True:
-      self.link.seqnum += 1
       self.link.cluster.txq.put([self.link.type,self.link.src_ip, self.link.dst_ip,self.link.dst_nID,self.link.lID,self.link.seqnum,self.link.acknum,self.link.cluster.ID,self.link.cluster.NodeID])
+      self.link.seqnum += 1
       if self.active.wait(self.link.time):
         self.link.logger.log (DEBUG, "stopping icmp tx thread")
         return
@@ -285,7 +285,7 @@ class get_msg(threading.Thread):
           return
         self.link.acknum = pkt['seqnum']
         
-        if pkt['acknum'] < self.link.seqnum - self.link.maxloss and self.link.get_ack:
+        if pkt['acknum'] < self.link.seqnum - self.link.maxloss and self.link.get_ack and  pkt['seqnum'] != 0:
           self.link.logger.log (NOTICE, "tx out-of-service")
           self.alarmq.put(self.link.alarm_txo)
           self.link.get_ack = False
@@ -329,6 +329,10 @@ class link():
     self.own_ip= own_ip
     self.get_ack = True
     self.type = ltype
+    self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0, "msgid": 301}
+    self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1, "msgid": 301}
+    self.alarm_txo = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0, "msgid": 302}
+    self.alarm_txi = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1, "msgid": 302}
     if self.type == 0:
       self.typename = "ICMP"
     elif self.type == 1:
@@ -336,10 +340,8 @@ class link():
     elif self.type == 2:
       self.typename = "ICMP_HOP"
       self.status = False 
-    self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0, "msgid": 301}
-    self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1, "msgid": 301}
-    self.alarm_txo = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0, "msgid": 302}
-    self.alarm_txi = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1, "msgid": 302}
+      self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0, "msgid": 303}
+      self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1, "msgid": 303}
     self.alarmq = self.cnode.alarmq 
     
 
@@ -409,8 +411,8 @@ class cnodes():
     self.status = {'icmp': True, 'udp': True}
     self.alarmq = self.cluster.alarmq
     self.logger = logging.getLogger("ClusterID:" + str(cluster.ID) + " NodeID:" + str(self.ID))
-    self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0, "msgid": 201}
-    self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1, "msgid": 201}
+    #self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0, "msgid": 201}
+    #self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1, "msgid": 201}
 
   def create_links(self):
     for i in self.cluster.config["links"]:
@@ -471,10 +473,10 @@ class cnodes():
     if self.status['udp'] != status:
       if status:
         self.logger.log (NOTICE, "UDP path in-service")
-        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1, "linktype": 1, "msgid": 201})
+        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 1, "linktype": 1, "msgid": 202})
       else:
         self.logger.log (CRITICAL, "UDP path out-of-service")
-        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0, "linktype": 1, "msgid": 201})
+        self.alarmq.put({"clusterID": self.cluster.ID, "cnodeID": self.ID, "state": 0, "linktype": 1, "msgid": 202})
     self.status['udp'] = status
     
 
