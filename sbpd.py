@@ -183,9 +183,17 @@ class hb_rx_udp(heartbeat,threading.Thread):
         continue
       try:
         self.system.cluster[data_pkt['ClusterID']].Nodes[data_pkt['src_nID']].udp_links[data_pkt['lID']].rxq.put(data_pkt)
+      except KeyError:
+        if data_pkt['ClusterID'] in self.system.cluster:
+          if data_pkt['src_nID'] in self.system.cluster[data_pkt['ClusterID']].Nodes:
+            if data_pkt['lID'] not in self.system.cluster[data_pkt['ClusterID']].Nodes[data_pkt['src_nID']].icmp_links:
+              self.logger.log(WARNING, "LinkID " + str(data_pkt['lID']) + " not configured for Cluster " + str(data_pkt['ClusterID']))
+          else:
+            self.logger.log(WARNING, "NodeID " + str(data_pkt['src_nID']) + " not configured for Cluster " + str(data_pkt['ClusterID']))
+        else:
+          self.logger.log(WARNING, "ClusterID " + str(data_pkt['ClusterID']) +  " not configured at this node")
       except:
         self.logger.log(WARNING, "packet can't be dispatched to link")
-        print("EEEERRRROROO")
  
 
 class hb_rx_icmp(heartbeat,threading.Thread):
@@ -214,9 +222,6 @@ class hb_rx_icmp(heartbeat,threading.Thread):
         continue
       data_pkt = data[1]
       ip_header = self.unpack_ip_addr(raw_pkt[0][:20])
-      if data_pkt['dst_nID'] != self.system.cluster[data_pkt['ClusterID']].NodeID:
-        logger.log(INFO, "packet received with wrong dest node ID (" + str(data_pkt['dst_nID']) + ")")
-        continue
       if data_pkt['src_nID'] == data_pkt['dst_nID']:
         try:
           dispatch_nodeID = self.system.cluster[data_pkt['ClusterID']].all_links[data_pkt['lID']]
@@ -226,6 +231,15 @@ class hb_rx_icmp(heartbeat,threading.Thread):
       else:
         try:
           self.system.cluster[data_pkt['ClusterID']].Nodes[data_pkt['src_nID']].icmp_links[data_pkt['lID']].rxq.put(data_pkt)
+        except KeyError:
+          if data_pkt['ClusterID'] in self.system.cluster:
+            if data_pkt['src_nID'] in self.system.cluster[data_pkt['ClusterID']].Nodes:
+              if data_pkt['lID'] not in self.system.cluster[data_pkt['ClusterID']].Nodes[data_pkt['src_nID']].icmp_links:
+                self.logger.log(WARNING, "LinkID " + str(data_pkt['lID']) + " not configured for Cluster " + str(data_pkt['ClusterID']))
+            else:
+              self.logger.log(WARNING, "NodeID " + str(data_pkt['src_nID']) + " not configured for Cluster " + str(data_pkt['ClusterID']))
+          else:
+            self.logger.log(WARNING, "ClusterID " + str(data_pkt['ClusterID']) +  " not configured at this node")
         except:
           self.logger.log(WARNING, "packet can't be dispactched to any link ClusterID:" + str(data_pkt['ClusterID']) + " NodeID:" + str(data_pkt['src_nID']) + " LinkID:" + str(data_pkt['lID']))  
       
@@ -306,7 +320,7 @@ class get_msg(threading.Thread):
           return
         self.link.acknum = pkt['seqnum']
         
-        if pkt['acknum'] < self.link.seqnum - self.link.maxloss and self.link.get_ack and  pkt['seqnum'] != 0:
+        if pkt['acknum'] < self.link.seqnum - self.link.maxloss and self.link.get_ack and self.link.status:
           self.link.logger.log (NOTICE, "tx out-of-service")
           self.alarmq.put(self.link.alarm_txo)
           self.link.get_ack = False
@@ -374,14 +388,12 @@ class link():
       self.alarm_txi["msgid"] = 313 
       self.status = False 
     self.alarmq = self.cnode.alarmq 
-    
-
     self.logger = logging.getLogger("ClusterID:" + str(self.cluster.ID) + " NodeID:" + str(self.cnode.ID) + " LinkID:" + str(self.lID) + " " + self.typename  )
 
     self.tx = send_msg(self)
     self.rxq = queue.Queue() 
     self.rx = get_msg(self, self.cnode)
-
+    
   def start(self):
     self.tx.start()
     self.rx.start()   
@@ -419,7 +431,6 @@ class cluster():
     self.logger = logging.getLogger("ClusterID:" + str(self.ID))
     #self.apiq = queue.Queue()
     self.alarmq = self.system.sock_api.alarmq
-
 
   def create_nodes(self):
     for i in self.config["Members"]:
