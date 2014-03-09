@@ -74,7 +74,7 @@ if daemon:
   run_as_daemon()
 
 log_file = '/var/log/sbpd.log'
-log_serverity = DEBUG
+log_serverity = INFO
 log_file_size = 1000000000 
 log_file_no = 5
 if "Logging" in config:
@@ -216,7 +216,6 @@ class hb_rx_icmp(heartbeat,threading.Thread):
       ip_header = self.unpack_ip_addr(raw_pkt[0][:20])
       if data_pkt['dst_nID'] != self.system.cluster[data_pkt['ClusterID']].NodeID:
         logger.log(INFO, "packet received with wrong dest node ID (" + str(data_pkt['dst_nID']) + ")")
-        print(data_pkt) 
         continue
       if data_pkt['src_nID'] == data_pkt['dst_nID']:
         try:
@@ -351,19 +350,29 @@ class link():
     self.own_ip= own_ip
     self.get_ack = True
     self.type = ltype
-    self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0, "msgid": 301}
-    self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1, "msgid": 301}
-    self.alarm_txo = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0, "msgid": 302}
-    self.alarm_txi = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1, "msgid": 302}
+    self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0}
+    self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1}
+    self.alarm_txo = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0}
+    self.alarm_txi = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1}
     if self.type == 0:
       self.typename = "ICMP"
+      self.alarm_oos["msgid"] = 301
+      self.alarm_ins["msgid"] = 301
+      self.alarm_txo["msgid"] = 311
+      self.alarm_txi["msgid"] = 311 
     elif self.type == 1:
+      self.alarm_oos["msgid"] = 302
+      self.alarm_ins["msgid"] = 302
+      self.alarm_txo["msgid"] = 312
+      self.alarm_txi["msgid"] = 312 
       self.typename = "UDP"
     elif self.type == 2:
       self.typename = "ICMP_HOP"
+      self.alarm_oos["msgid"] = 303
+      self.alarm_ins["msgid"] = 303
+      self.alarm_txo["msgid"] = 313
+      self.alarm_txi["msgid"] = 313 
       self.status = False 
-      self.alarm_oos = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 0, "msgid": 303}
-      self.alarm_ins = {"clusterID": self.cluster.ID, "cnodeID": self.cnode.ID, "linktype": self.type, "lID": self.lID, "state": 1, "msgid": 303}
     self.alarmq = self.cnode.alarmq 
     
 
@@ -625,7 +634,7 @@ class sock_api(threading.Thread):
     self.conn = {}
     self.logger = logging.getLogger("sock api")
     self.system = system
-    self.sockfile = "sbpd.sock"
+    self.sockfile = "/run/sbpd.sock"
     if "api" in self.system.config:
       self.sockfile = self.system.config['api']['socket']
     self.alarmq = queue.Queue()

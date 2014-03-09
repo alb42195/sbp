@@ -25,27 +25,41 @@
 #####################################################################################
 
 
-import socket, sys, os, time, struct, threading
+import socket, time, struct, threading
 
 class sbp(threading.Thread):
-  def __init__(self,sock_file,cb_func):
-
+  def __init__(self,clusterID,cb_func,sockfile="/run/sbpd.sock",thread=False):
     self.cb_func = cb_func
+    self.sockfile = sockfile
+    self.clusterID = clusterID
+    self.thread = thread
+    if self.thread:
+      threading.Thread.__init__(self)
+      self.daemon = True
+    else:
+      self.run() 
 
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+  def run(self):
+    self.init()
+    self.rx()
+    self.stop()
+
+
+  def stop(self):
+    self.sock.close()
+    return
+
+  def init(self):
+    self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    self.sock.connect(self.sockfile)
+    tosend  = struct.pack('H', self.clusterID)
+    self.sock.send(tosend)
+
+  def rx(self):
     while True:
-      try:
-        sock.connect(sock_file)
-        break
-      except ConnectionRefusedError:
-        time.sleep(5)
-    tosend  = struct.pack('H', 1000)
-    sock.send(tosend)
-    while True:
-      try:
-        data_raw = sock.recv(1024)
+        data_raw = self.sock.recv(1024)
         if not data_raw:
-          sock.close()
           break
       
         length, = struct.unpack('H', data_raw[:2])
@@ -62,10 +76,6 @@ class sbp(threading.Thread):
 
         else:
           self.unpack(data_raw[2:])
-
-      except KeyboardInterrupt:
-         sock.close() 
-         sys.exit(1)
 
   def unpack(self,data):
     pkt = {}
