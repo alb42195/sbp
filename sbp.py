@@ -60,7 +60,7 @@ class sbp(threading.Thread):
     while True:
         data_raw = self.sock.recv(1024)
         if not data_raw:
-          break
+          raise BrokenPipeError("sbpd connection")
       
         length, = struct.unpack('H', data_raw[:2])
         if length != len(data_raw):
