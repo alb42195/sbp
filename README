@@ -6,12 +6,11 @@ Table of content:
 1   Overview
 2   Configuration
 3   sbp python library
-4   socket api
+4   socket API
 
 
 1, Overview:
 ------------
-
 
 The program send keep alive messages via UDP and ICMP. 
 
@@ -28,11 +27,11 @@ UDP messages will be send direct between the configured cluster nodes.
 
 
 
-ICMP messages will be send via node 3. To have the best verification 
-node 3 should be one of the clients who are using the service of the 
-cluster, or at least a entry node in to our network which the client 
-flow will use. On Node 3 no software have to be installed, it just 
-have to support ICMP type 0 and 8. 
+ICMP messages will be send via a hop (node 3) from one cluster node to another. 
+To have the best verification node 3 should be one of the clients who are 
+using the service of the cluster, or at least a entry node into our network 
+which the client flow will use. On Node 3 no software have to be installed, it 
+just have to support ICMP type 0 and 8 (ping). 
 
 
                  +--------------+
@@ -59,15 +58,19 @@ have to support ICMP type 0 and 8.
     +--------------+          +--------------+
 
 
-Node 1 send the ICMP request to node 3, but with the source IP of 
-node 2, thus node 3 will send the response to node 2. Node 2 will do it
-vice versa. In the payload of the ICMP messages is a simple heartbeat 
-protocol with parameters like node ID, sequence number, acknowledge no. 
-and so on. Through this ICMP channels via node 3 a asynchronous
-communication is establish. Again the big advantage is, that on node 3 
-no additional software have to be installed.
+Node 1 send the ICMP request to node 3, but with the source IP of node 2, thus
+node 3 will send the response to node 2. Node 2 will do it vice versa. In the 
+payload of the ICMP messages is a simple heartbeat protocol with parameters 
+like node ID, sequence number, acknowledge number and so on. Through this ICMP
+channels via node 3 a asynchronous communication is establish between the two
+cluster members. Again the big advantage is, that on node 3 no additional
+software have to be installed. Through this channel the two cluster members 
+can verify if the opposite is node is alive as long as the client (node 3)
+is able to communicate to both. A classic split brain will be that the client
+(node 3) is able to see both cluster nodes, but the direct communication 
+between both nodes is broken. This can be avoid. 
 
-If the ICMP path went broken the node (e.g. node 1) will start to verify
+If the ICMP path went broken each node (e.g. node 1) will start to verify
 the connection to the client (node 3), to know which cluster node seems 
 to be isolated, it self or the opposite node.
 
@@ -105,12 +108,12 @@ good decision if the opposite node dies or just a split brain happened.
 2, Configuration
 ----------------
 
-The main program (sbpd.py) runs as a daemon and needs a configuration 
-file to be run able. The configuration file (sbpd.conf) have to be locate
-in one of the following locations. /etc, /usr/local/etc or in the same 
-directory like sbpd.py self. 
+The main program (sbpd.py) runs as a daemon and needs a configuration file to 
+be run able. The configuration file (sbpd.conf) have to be locate in one of 
+the following locations. /etc, /usr/local/etc or in the same directory like 
+sbpd.py self. 
 
-The configuration is JSON style and is on all cluster members the same.
+The configuration file is JSON style and is on all cluster members the same.
 
 In first level there are 4 different objects: Cluster, System, Logging and api.
 
@@ -118,46 +121,65 @@ The Cluster key contains a array. Each value of the array is a objects and
 represent a cluster, thus each node can be a member of different clusters.
 This object defines a cluster and has the following values: 
     ID =>   a unique ID to identify the cluster
+
     Members =>  this is a another array of objects. Each object represent  
                 a cluster member (a node). Each of the cluster member objects
                 contains 2 values:
+
                 ID => node ID, have to be unique in the cluster
+
                 Hostname => hostname of the node
+
     links =>  is a array of objects, each object represent a link between 2
               nodes of the cluster and has following values:
+
               ID => link ID, this have to be unique in the cluster
+
               type => icmp or udp
+
               interval => heartbeat interval in seconds e.g 1, 5 or 0.1  
+
               maxloss =>  number of requests which can get lost before the 
                           link is marked as broken.
+
               ICMPIP => only available for link type icmp. It defines the
                         IP address of the client (node 3) which should be 
                         used for validation.
+
               Nodes =>  is another array, but only 2 entries are allowed.
                         Each entry is a object which defines 2 values.
+
                         NodeID => The ID of node between the link is. 
+
                         IP => The IP addresse which should be use on each node
 
 
 The System key contains a object with 2 values:
+
     udp_port => The udp port which should be use for udp links. This is a 
                 cluster wide configuration. This parameter is MANDATORY if 
                 you like to use udp links.
     foreground => boolean, if set to true daemon will run in foreground.
                   The parameter is optional default value is false.
-    
+
  
 The Logging key contains a object with 4 values:
+
     level =>  logging severity, values DEBUG, INFO, NOTICE, WARNING, ERROR 
               and CRITICAL are allowed. Default value is INFO 
+
     logfile =>  log file name and path e.g. "/var/log/sbpd.conf". This is also
                 the default path and file name.
+
     max_file_size =>  The size in MB when the file should be rotated.
                       Default size is 10 MB.
+
     no_of_file => How many files should be keep on the system.
                   Default value is 5.
 
+
 The api key contains only one value.
+
     socket => path an name of socket file for api.
               Default value "/run/sbpd.sock"
 
@@ -170,20 +192,26 @@ messages of the socket API.
 
   sbp.sbp(ClusterID, call back function, [sock file, [thread]])
 
-ClusterID => The ID of the cluster where you like to receive messages, integer.
-call back function => every time when a messages will be received the call
-                      function will be fired and input is a dictionary with 
-                      the received values of the message.
-sock file =>  path to the socket file
-thread => boolean, default is false. If it is true it will run in a own thread.
-          If it run in a own thread you have to use the following functions.
 
-          initialize =>  foo = sbp.sbp(1000,cb_func,"/run/sbpd.sock",True)
-          start thread => foo.start()
-          stop thread => foo.stop()
+    ClusterID =>  The ID of the cluster where you like to receive messages, 
+                  integer.
 
-          If you don't like to run it in a own thread you just have to call it
-          and it will block the current thread.
+    call back function => every time when a messages will be received the call
+                          back function will be fired and input is a dictionary 
+                          with the received values of the message.
+
+    sock file =>  path to the socket file
+
+    thread => boolean, default is false. If it is true it will run in a own 
+              thread. If it run in a own thread you have to use the following
+              functions.
+
+              initialize =>  foo = sbp.sbp(1000,cb_func,"/run/sbpd.sock",True)
+              start thread => foo.start()
+              stop thread => foo.stop()
+
+              If you don't like to run it in a own thread you just have to call
+              it and it will block the current thread.
 
 
 The dictionary which will be the input for your call back function contains
@@ -212,16 +240,20 @@ only integer values with the following keys:
 
 
     state =>  0 or 1, 0 is out-of-service, 1 is in-service 
+
     ClusterID =>  ID of the cluster
+
     NodeID => ID of the opposite node
+
     linktype => 0, 1 or 2, 0 is ICMP, 1 is UDP, 2 is ICMP_HOP.
-                Type 2 get only active if the ICMP is brocken to verifiy
-                the hop node (node 3 section overview)
+                Type 2 get only active if the ICMP flow to opposite node is 
+                broken to verify the hop node (node 3 section overview).
+
     lID =>  ID of the link, this value is only present by messages with ID
             higher then 300.
      
 If you connect to the sbpd daemon, you will receive immediately 
-the current acitve alarms, which means all links which are in state 0. Also
+the current active alarms, which means all links which are in state 0. Also
 if some path it out-of-service you will get the appropriate information. 
 in-service messages you will not get on new connections, only at the time 
 when a link go into in-service state. Thus you can assume all links are
@@ -236,7 +268,7 @@ initialization.
 The socket API is a unix socket. For the connection you have to send the
 cluster ID as unsigned short integer (2 bytes). After that you will only 
 receive messages. The messages contain the same values like in the above 
-described python library. All values are unsigned short integer (2 bytes). 
+described python library. All values are unsigned short integers (2 bytes). 
 Just one additional value is present. The messages length in bytes, again
 a unsigned short integer. Multiple messages can be send together. 
 
@@ -250,6 +282,6 @@ The order of the values are:
     6, link ID, only by message type higher then 300. 
 
 The API can handle multiple connections and it buffers all out-of-service
-(state = 0) alarms for next connections. If you are connection to the 
+(state = 0) alarms for new connections. If you are connection to the 
 socket and you are not receiving any message immediately all links are
 in-service. 
