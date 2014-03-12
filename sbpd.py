@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python
 
 ################################################################################
 #
@@ -22,8 +22,11 @@
 ################################################################################
 
 
-import struct, time, socket, queue, threading, json, sys, os, logging, logging.handlers
-
+import struct, time, socket, threading, json, sys, os, logging, logging.handlers
+try:
+  import queue
+except ImportError:
+  import Queue as queue
 
 def run_as_daemon():
   if __name__ == "__main__":
@@ -139,8 +142,10 @@ class heartbeat():
     countTo = (len(str) / 2) * 2
     count = 0
     while count < countTo:
-      #thisVal = ord(str[count+1]) * 256 + ord(str[count])
-      thisVal = str[count+1] * 256 + str[count]
+      if sys.version_info[0] == 2:
+        thisVal = ord(str[count+1]) * 256 + ord(str[count])
+      else:
+        thisVal = str[count+1] * 256 + str[count]
       csum = csum + thisVal
       csum = csum & 0xffffffff
       count = count + 2
