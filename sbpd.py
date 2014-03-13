@@ -301,11 +301,16 @@ class send_msg(threading.Thread):
   def run(self):
     while True:
       self.link.cluster.txq.put([self.link.type,self.link.src_ip, self.link.dst_ip,self.link.dst_nID,self.link.lID,self.link.seqnum,self.link.acknum,self.link.cluster.ID,self.link.cluster.NodeID])
+      self.link.logger.log (DEBUG, "seqnum=" + str(self.link.seqnum))
       self.link.seqnum += 1
       if self.active.wait(self.link.time):
         self.link.logger.log (DEBUG, "stopping icmp tx thread")
         return
-      
+      #python 2.6
+      if self.active.is_set():
+        self.link.logger.log (DEBUG, "stopping icmp tx thread")
+        return
+
 
 class get_msg(threading.Thread):
   def __init__(self,link,cnode):
@@ -326,6 +331,7 @@ class get_msg(threading.Thread):
         if not pkt:
           self.link.logger.log (DEBUG, "stopping get_msg thread")
           return
+        self.link.logger.log (DEBUG, "seqnum=" + str(pkt['seqnum']) + " acknum=" + str(self.link.acknum))
         self.link.acknum = pkt['seqnum']
         
         if pkt['acknum'] < self.link.seqnum - self.link.maxloss and self.link.get_ack and self.link.status:

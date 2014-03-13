@@ -260,7 +260,8 @@ when a link go into in-service state. Thus you can assume all links are
 in-service where you got no out-of-service notification immediately after 
 initialization. 
 
-
+If the client lost the connection to the daemon (socket) a BrokenPipeError
+exception will be raised.
 
 4, socket API 
 -------------
