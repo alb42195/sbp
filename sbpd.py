@@ -55,6 +55,8 @@ NOTICE=25
 INFO=20
 DEBUG=10
 
+log_level_python26 = { 'CRITICAL': 50, 'ERROR': 40, 'WARNING': 30, 'NOTICE': 25, 'INFO': 20, 'DEBUG': 10}
+
 if os.path.isfile('/etc/sbpd.conf'):
   conf_file_location = '/etc/sbpd.conf'
 elif os.path.isfile('/usr/local/etc/sbpd.conf'):
@@ -84,18 +86,19 @@ if "Logging" in config:
   if "level" in config['Logging']:
     log_serverity = config['Logging']['level']
     log_serverity = log_serverity.upper()
+    if sys.version_info[0] == 2 and sys.version_info[1] < 7:
+      log_serverity = log_level_python26[log_serverity]
   if "logfile" in config['Logging']:
     log_file = config['Logging']['logfile']
   if "no_of_files" in config['Logging']:
     log_file_no = config['Logging']['no_of_files']
   if "max_file_size" in config['Logging']:
-    log_file_no = config['Logging']['max_file_size'] * 1000 * 1000
+    log_file_size = config['Logging']['max_file_size'] * 1000 * 1000
 
 
 FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
-#logging.basicConfig(filename=log_path + "/" + log_filename ,format=FORMAT)
 logging.getLogger('').setLevel(log_serverity)
-handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=10000000, backupCount=5)
+handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=log_file_size, backupCount=log_file_no)
 handler.setFormatter(logging.Formatter(FORMAT))
 logging.addLevelName(25, "NOTICE")
 logging.getLogger("").addHandler(handler)

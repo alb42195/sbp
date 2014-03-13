@@ -222,7 +222,7 @@ only integer values with the following keys:
                 202 =>  state information of UDP path
                 301 =>  state information of ICMP link
                 302 =>  state information of UDP link
-                303 =>  stare information of ICMP_HOP link
+                303 =>  state information of ICMP_HOP link
                 311 =>  ICMP link, receiving packets from opposite node,
                         but no acknowledge of own sequence no.
                         Conclusion opposite node do not receive my messages.
